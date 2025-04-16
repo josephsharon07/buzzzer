@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechBlitz 2025 - Buzzer App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .tech-font {
+            font-family: 'Orbitron', sans-serif;
+        }
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+            100% { transform: translateY(0px); }
+        }
+        .float-animation {
+            animation: float 6s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen text-white">
+    <div class="container mx-auto px-4 py-8 flex flex-col items-center justify-center min-h-screen">
+        <!-- Logo and Title Section -->
+        <div class="text-center mb-12">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="TechBlitz Phoenix Logo" 
+                 class="w-48 md:w-64 mx-auto mb-8 float-animation">
+            <h1 class="tech-font text-4xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-pink-500 mb-4">
+                TechBlitz 2025
+            </h1>
+            <p class="text-gray-300 text-lg md:text-xl">Interactive Buzzer System</p>
+        </div>
+        
+        <!-- Buttons Section -->
+        <div class="flex flex-col md:flex-row gap-6 w-full max-w-xl">
+            <button id="createRoom" 
+                    class="w-full md:w-1/2 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold py-6 px-8 rounded-2xl hover:from-orange-600 hover:to-pink-600 transform hover:scale-105 transition-all duration-200 shadow-lg tech-font text-xl">
+                CREATE ROOM
+            </button>
+            <button id="joinRoom" 
+                    class="w-full md:w-1/2 bg-gradient-to-r from-pink-500 to-purple-500 text-white font-bold py-6 px-8 rounded-2xl hover:from-pink-600 hover:to-purple-600 transform hover:scale-105 transition-all duration-200 shadow-lg tech-font text-xl">
+                JOIN ROOM
+            </button>
+        </div>
+
+        <!-- Join Room Modal -->
+        <div id="joinRoomModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+            <div class="bg-gray-800 p-8 rounded-2xl w-96 border border-gray-700">
+                <h2 class="tech-font text-2xl text-pink-400 mb-6">Join Room</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-300 text-sm font-medium mb-2" for="roomCode">Room Code</label>
+                        <input type="text" id="roomCode" 
+                               class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-400 focus:border-transparent text-white placeholder-gray-400 uppercase"
+                               placeholder="Enter room code" maxlength="6">
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 text-sm font-medium mb-2" for="playerName">Your Name</label>
+                        <input type="text" id="playerName" 
+                               class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-400 focus:border-transparent text-white placeholder-gray-400"
+                               placeholder="Enter your name" maxlength="20">
+                    </div>
+                    <div class="flex gap-4 mt-6">
+                        <button id="joinRoomSubmit" 
+                                class="flex-1 bg-gradient-to-r from-pink-500 to-purple-500 text-white font-bold py-3 px-6 rounded-lg hover:from-pink-600 hover:to-purple-600 transition-all duration-200">
+                            Join
+                        </button>
+                        <button id="closeModal" 
+                                class="flex-1 bg-gray-700 text-white font-bold py-3 px-6 rounded-lg hover:bg-gray-600 transition-all duration-200">
+                            Cancel
+                        </button>
+                    </div>
+                    <div id="joinError" class="hidden text-red-400 text-sm text-center mt-4">Room not found</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const joinRoomModal = document.getElementById('joinRoomModal');
+        const joinButton = document.getElementById('joinRoom');
+        const closeButton = document.getElementById('closeModal');
+        const createRoomButton = document.getElementById('createRoom');
+        const joinRoomSubmitButton = document.getElementById('joinRoomSubmit');
+        const errorElement = document.getElementById('joinError');
+
+        // Show modal
+        joinButton.addEventListener('click', () => {
+            joinRoomModal.classList.remove('hidden');
+        });
+
+        // Hide modal
+        closeButton.addEventListener('click', () => {
+            joinRoomModal.classList.add('hidden');
+            errorElement.classList.add('hidden');
+        });
+
+        // Create room
+        createRoomButton.addEventListener('click', () => {
+            fetch('/create_room', { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ hostName: 'Host' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    window.location.href = `/room/${data.room}`;
+                }
+            });
+        });
+
+        // Join room
+        joinRoomSubmitButton.addEventListener('click', () => {
+            const roomCode = document.getElementById('roomCode').value;
+            const playerName = document.getElementById('playerName').value.trim();
+            
+            fetch('/join_room', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    room: roomCode,
+                    playerName: playerName
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    window.location.href = `/room/${roomCode}`;
+                } else {
+                    errorElement.classList.remove('hidden');
+                }
+            })
+            .catch(() => {
+                errorElement.classList.remove('hidden');
+            });
+        });
+
+        // Clear error message when typing
+        document.getElementById('roomCode').addEventListener('input', () => {
+            errorElement.classList.add('hidden');
+        });
+
+        // Close modal when clicking outside
+        joinRoomModal.addEventListener('click', (e) => {
+            if (e.target === joinRoomModal) {
+                joinRoomModal.classList.add('hidden');
+                errorElement.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+workers = 2  # t2.micro has 1 vCPU, so we use 2 workers
+worker_class = 'eventlet'  # Use eventlet worker for WebSocket support
+worker_connections = 750  # Limit concurrent connections per worker
+timeout = 30
+keepalive = 2
+max_requests = 1000
+max_requests_jitter = 50
+errorlog = '-'  # Log to stdout
+accesslog = '-'
+loglevel = 'warning'

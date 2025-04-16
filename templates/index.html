@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechBlitz 2025 - Buzzer Room</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        .tech-font {
+            font-family: 'Orbitron', sans-serif;
+        }
+        /* Add performance optimization for animations */
+        .transform-gpu {
+            transform: translateZ(0);
+            will-change: transform;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 to-gray-800 min-h-screen text-white">
+    <!-- Header with Room Info -->
+    <header class="fixed top-0 left-0 right-0 bg-gray-900/80 backdrop-blur-sm border-b border-gray-800 z-10">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div>
+                <h1 class="tech-font text-xl md:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                    TechBlitz 2025
+                </h1>
+                <p class="text-gray-400 text-sm">Room: {{ room }}</p>
+            </div>
+            <button id="leaveRoom" 
+                    class="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors">
+                Leave Room
+            </button>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 pt-24 pb-16">
+        <!-- Host Controls Section -->
+        <div id="hostControls" class="hidden mb-8">
+            <div class="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+                <h3 class="tech-font text-xl text-cyan-400 mb-4">Host Controls</h3>
+                <div class="flex flex-wrap gap-4">
+                    <button id="toggleBuzzer" 
+                            class="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
+                        Enable Buzzer
+                    </button>
+                    <button id="resetButton"
+                            class="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
+                        Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Game Area -->
+        <div class="grid md:grid-cols-[1fr_300px] gap-8">
+            <!-- Left Column: Buzzer (Only shown for non-host) and Buzz List -->
+            <div class="space-y-8" id="mainSection">
+                <!-- Buzzer for non-host -->
+                <div class="text-center" id="buzzerContainer">
+                    <button id="buzzerButton" 
+                            class="relative w-48 h-48 md:w-64 md:h-64 rounded-full bg-gradient-to-r from-red-500 to-red-600 text-white text-2xl md:text-4xl font-bold shadow-lg hover:from-red-600 hover:to-red-700 transform hover:scale-105 transition-all duration-200">
+                        BUZZ!
+                    </button>
+                    <div id="buzzerDisabledMessage" class="hidden mt-4 text-red-400">
+                        Buzzer is currently disabled by the host
+                    </div>
+                </div>
+
+                <!-- Buzz List (shown for both host and participants) -->
+                <div class="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+                    <h2 class="tech-font text-xl text-blue-400 mb-4">Buzz Order</h2>
+                    <div id="buzzList" class="space-y-3">
+                        <!-- Buzz entries will be listed here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Participants -->
+            <div class="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 h-fit">
+                <h2 class="tech-font text-xl text-cyan-400 mb-4">Participants</h2>
+                <div id="participantList" class="space-y-3">
+                    <!-- Participants will be listed here -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const socket = io();
+        const room = '{{ room }}';
+        const isHost = {{ 'true' if is_host else 'false' }};
+        const buzzerButton = document.getElementById('buzzerButton');
+        const toggleBuzzerButton = document.getElementById('toggleBuzzer');
+        const resetButton = document.getElementById('resetButton');
+        const participantList = document.getElementById('participantList');
+        const hostControls = document.getElementById('hostControls');
+        const buzzerSection = document.getElementById('buzzerSection');
+        const buzzerDisabledMessage = document.getElementById('buzzerDisabledMessage');
+        const buzzList = document.getElementById('buzzList');
+        const mainSection = document.getElementById('mainSection');
+
+        let timeOffset = 0;  // Time difference between client and server
+        let lastServerSync = 0;
+
+        // Synchronize time with server
+        async function syncTime() {
+            const startTime = Date.now();
+            const response = await fetch('/server_time');
+            const endTime = Date.now();
+            const data = await response.json();
+            
+            // Use the middle of the request as the reference point
+            const roundTripTime = endTime - startTime;
+            const clientTime = startTime + (roundTripTime / 2);
+            timeOffset = clientTime - data.serverTime;
+            lastServerSync = Date.now();
+        }
+
+        function formatReactionTime(ms) {
+            return (ms / 1000).toFixed(3) + 's';
+        }
+
+        // Show/hide sections based on role
+        if (isHost) {
+            hostControls.classList.remove('hidden');
+            buzzerContainer.classList.add('hidden');
+        }
+
+        // Debounce function for performance optimization
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Join room via WebSocket
+        socket.emit('join', { room });
+
+        // Handle room updates via WebSocket
+        socket.on('room_update', (status) => {
+            // Update participant list
+            const participants = Object.values(status.clients);
+            if (participants.length === 0) {
+                participantList.innerHTML = `
+                    <p class="text-gray-500 text-center italic">Waiting for participants...</p>
+                `;
+            } else {
+                participantList.innerHTML = participants
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((p, index) => `
+                        <div class="bg-gray-700/30 rounded-lg p-3 flex items-center justify-between group hover:bg-gray-700/50 transition-all transform-gpu">
+                            <div class="flex items-center space-x-3">
+                                <span class="tech-font text-lg text-pink-400">#${index + 1}</span>
+                                <span class="text-white font-medium">${p.name}</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="text-emerald-400">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </span>
+                            </div>
+                        </div>
+                    `).join('');
+            }
+
+            // Update buzzer state for non-host participants
+            if (!isHost) {
+                const clientId = '{{ session.get("client_id", "") }}';
+                const hasBuzzed = status.hasBuzzed.includes(clientId);
+                updateBuzzerState(hasBuzzed, status.buzzerEnabled);
+            }
+
+            // Update host controls
+            if (isHost) {
+                updateHostControls(status.buzzerEnabled);
+            }
+        });
+
+        // Handle buzz list updates via WebSocket
+        socket.on('buzz_list_update', (timestamps) => {
+            if (timestamps.length === 0) {
+                buzzList.innerHTML = `
+                    <p class="text-gray-500 text-center italic">No buzzes yet...</p>
+                `;
+            } else {
+                buzzList.innerHTML = timestamps
+                    .map(t => `
+                        <div class="bg-gray-700/30 rounded-lg p-3 flex items-center justify-between group hover:bg-gray-700/50 transition-all transform-gpu">
+                            <div class="flex items-center space-x-3">
+                                <span class="tech-font text-xl text-pink-400">#${t.position}</span>
+                                <div class="flex flex-col">
+                                    <span class="text-white font-medium">${t.player_name}</span>
+                                    ${t.reaction_time ? `
+                                        <span class="text-sm text-green-400">
+                                            Reaction: ${formatReactionTime(t.reaction_time)}
+                                        </span>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+            }
+        });
+
+        function updateBuzzerState(hasBuzzed, buzzerEnabled) {
+            if (hasBuzzed) {
+                buzzerButton.classList.add('opacity-50', 'cursor-not-allowed');
+                buzzerButton.setAttribute('disabled', 'true');
+                buzzerDisabledMessage.textContent = 'Your buzz was recorded!';
+                buzzerDisabledMessage.classList.remove('hidden', 'text-red-400');
+                buzzerDisabledMessage.classList.add('text-green-400');
+            } else if (buzzerEnabled) {
+                buzzerButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                buzzerButton.removeAttribute('disabled');
+                buzzerDisabledMessage.classList.add('hidden');
+            } else {
+                buzzerButton.classList.add('opacity-50', 'cursor-not-allowed');
+                buzzerDisabledMessage.textContent = 'Buzzer is currently disabled by the host';
+                buzzerDisabledMessage.classList.remove('hidden');
+                buzzerDisabledMessage.classList.add('text-red-400');
+                buzzerDisabledMessage.classList.remove('text-green-400', 'text-yellow-400');
+            }
+        }
+
+        function updateHostControls(buzzerEnabled) {
+            if (buzzerEnabled) {
+                toggleBuzzerButton.textContent = 'Disable Buzzer';
+                toggleBuzzerButton.classList.remove('bg-green-500');
+                toggleBuzzerButton.classList.add('bg-red-500');
+            } else {
+                toggleBuzzerButton.textContent = 'Enable Buzzer';
+                toggleBuzzerButton.classList.remove('bg-red-500');
+                toggleBuzzerButton.classList.add('bg-green-500');
+            }
+        }
+
+        // Only add buzz functionality for non-host
+        if (!isHost) {
+            const handleBuzz = debounce(() => {
+                if (buzzerButton.classList.contains('opacity-50')) {
+                    return;
+                }
+                
+                buzzerButton.classList.add('opacity-50', 'cursor-not-allowed');
+                
+                const timestamp = Date.now();
+                fetch('/buzz', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        timestamp: timestamp,
+                        timeOffset: timeOffset
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(response.status === 403 ? 'Already buzzed' : 'Buzz failed');
+                    }
+                    return response.json();
+                })
+                .catch(error => {
+                    if (error.message === 'Already buzzed') {
+                        buzzerButton.classList.add('opacity-50', 'cursor-not-allowed');
+                        buzzerButton.setAttribute('disabled', 'true');
+                        buzzerDisabledMessage.textContent = 'You have already buzzed in this round!';
+                        buzzerDisabledMessage.classList.remove('hidden');
+                        buzzerDisabledMessage.classList.add('text-yellow-400');
+                    } else {
+                        buzzerButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                        buzzerDisabledMessage.textContent = 'Failed to record buzz. Try again.';
+                        buzzerDisabledMessage.classList.remove('hidden');
+                        console.error('Error:', error);
+                    }
+                });
+            }, 50);
+
+            buzzerButton.addEventListener('click', handleBuzz);
+            
+            // Add keyboard shortcut for buzzing
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'Space' && !buzzerButton.disabled) {
+                    e.preventDefault();
+                    handleBuzz();
+                }
+            });
+        }
+
+        if (isHost) {
+            toggleBuzzerButton.addEventListener('click', () => {
+                fetch(`/toggle_buzzer/${room}`, { method: 'POST' })
+                    .then(response => response.json());
+            });
+
+            resetButton.addEventListener('click', () => {
+                fetch(`/reset/${room}`, { method: 'POST' })
+                    .then(response => response.json());
+            });
+        }
+
+        document.getElementById('leaveRoom').addEventListener('click', () => {
+            socket.emit('leave', { room });
+            fetch(`/leave_room/${room}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        window.location.href = '/';
+                    }
+                });
+        });
+
+        // Initial time sync and periodic re-sync
+        syncTime();
+        setInterval(syncTime, 30000);  // Re-sync every 30 seconds
+    </script>
+</body>
+</html>
