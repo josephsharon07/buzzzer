@@ -5,7 +5,7 @@ sudo apt-get update
 sudo apt-get install -y python3-pip nginx
 
 # Install Python dependencies
-pip3 install -r requirements.txt
+pip3 install -r requirements.txt --break-system-packages
 
 # Configure Nginx as reverse proxy
 sudo tee /etc/nginx/sites-available/buzzer << EOF
